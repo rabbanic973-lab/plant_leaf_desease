@@ -151,6 +151,55 @@ async function startServer() {
       res.status(500).json({ error: "Failed to extract leaves." });
     }
   });
+  // Upload Training Data
+  app.post("/api/admin/upload-training-data", upload.single("dataset"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No CSV file uploaded" });
+      }
+
+      const renderApiUrl = process.env.RENDER_VISION_API_URL || "http://localhost:8000";
+      const formData = new FormData();
+      const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
+      formData.append("dataset", blob, req.file.originalname);
+
+      const pythonResponse = await fetch(`${renderApiUrl}/upload-training-data`, {
+        method: "POST",
+        body: formData
+      });
+
+      if (pythonResponse.ok) {
+        const data = await pythonResponse.json();
+        res.json(data);
+      } else {
+        res.status(pythonResponse.status).json({ error: "Python backend failed" });
+      }
+    } catch (error) {
+      console.error("Error uploading training data:", error);
+      res.status(500).json({ error: "Failed to upload training data." });
+    }
+  });
+
+  // Trigger Model Training
+  app.post("/api/admin/train-model", async (req, res) => {
+    try {
+      const renderApiUrl = process.env.RENDER_VISION_API_URL || "http://localhost:8000";
+      const pythonResponse = await fetch(`${renderApiUrl}/train-model`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+
+      if (pythonResponse.ok) {
+        const data = await pythonResponse.json();
+        res.json(data);
+      } else {
+        res.status(pythonResponse.status).json({ error: "Python backend failed" });
+      }
+    } catch (error) {
+      console.error("Error triggering training:", error);
+      res.status(500).json({ error: "Failed to trigger training." });
+    }
+  });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

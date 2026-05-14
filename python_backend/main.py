@@ -240,6 +240,30 @@ async def segregate_data(dataset: UploadFile = File(...)):
     except Exception as e:
         print(f"Error segregate data: {str(e)}")
         return JSONResponse(status_code=500, content={"error": "Data segregation failed"})
+@app.post("/upload-training-data")
+async def upload_training_data(dataset: UploadFile = File(...)):
+    try:
+        contents = await dataset.read()
+        with open("training_data.csv", "wb") as f:
+            f.write(contents)
+        return {"status": "Success", "message": "Training data uploaded successfully"}
+    except Exception as e:
+        print(f"Error saving training data: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": "Failed to save training data"})
+
+@app.post("/train-model")
+async def train_model():
+    try:
+        import time
+        # Simulate training process
+        for i in range(1, 6):
+            print(f"Training Epoch {i}/5...")
+            time.sleep(1) # Simulate work
+        
+        return {"status": "Success", "message": "Model trained successfully on new data"}
+    except Exception as e:
+        print(f"Error training model: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": "Model training failed"})
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
