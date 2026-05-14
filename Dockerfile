@@ -32,9 +32,9 @@ RUN npx esbuild server.ts --bundle --platform=node --format=cjs --packages=exter
 # ---- Stage 3: Runtime (Python + Node.js) ----
 FROM python:3.11-slim
 
-# Install Node.js 20
+# Install Node.js 20 + sed (to fix Windows line endings)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends curl sed && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     apt-get clean && \
@@ -62,9 +62,9 @@ COPY --from=server-build /app/dist/server.cjs.map ./dist/server.cjs.map
 # Python backend
 COPY python_backend/main.py /app/python_backend/main.py
 
-# Startup script
+# Startup script — strip Windows CRLF line endings then make executable
 COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+RUN sed -i 's/\r//' /app/start.sh && chmod +x /app/start.sh
 
 # ---- Environment ----
 ENV NODE_ENV=production

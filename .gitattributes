@@ -1,3 +1,8 @@
+# Force LF line endings for shell scripts and text files (prevents CRLF issues on Linux)
+*.sh text eol=lf
+*.py text eol=lf
+Dockerfile text eol=lf
+
 # Git LFS for model weight files
 *.pth filter=lfs diff=lfs merge=lfs -text
 *.bin filter=lfs diff=lfs merge=lfs -text
