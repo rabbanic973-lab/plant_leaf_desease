@@ -1,0 +1,6 @@
+{
+  "name": "Remix: LeafGuard AI",
+  "description": "Leaf detection, disease classification, and treatment suggestion pipeline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
