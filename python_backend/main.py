@@ -30,27 +30,25 @@ app.add_middleware(
 device = torch.device('cpu') # Force CPU for Render
 class_names = ['Healthy', 'Diseased']
 
-# 1. Segmentation Model (Lighter MobileNet instead of heavy ResNet50)
+# 1. Segmentation Model (Lighter MobileNet instead of heavy ResNet50, but with pre-trained weights for transfer learning)
 def get_segmentation_model(num_classes):
     # Using mobile net to save memory. 
     model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_320_fpn(
-        weights=None, 
-        weights_backbone=None,
-        pretrained=False,
-        pretrained_backbone=False
+        weights="DEFAULT"
     )
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
     return model
 
-# 2. Classification Model (MobileNetV3 Small instead of ResNet18)
+# 2. Classification Model (EfficientNet-B0 for high accuracy & low memory footprint)
 class LeafDiseaseClassifier(nn.Module):
     def __init__(self, num_classes):
         super(LeafDiseaseClassifier, self).__init__()
-        self.backbone = models.mobilenet_v3_small(weights=None, pretrained=False)
+        # Use ImageNet pre-trained weights for a massive accuracy boost (Transfer Learning)
+        self.backbone = models.efficientnet_b0(weights="DEFAULT")
         # Modify the last layer for our classes
-        in_features = self.backbone.classifier[3].in_features
-        self.backbone.classifier[3] = nn.Linear(in_features, num_classes)
+        in_features = self.backbone.classifier[1].in_features
+        self.backbone.classifier[1] = nn.Linear(in_features, num_classes)
 
     def forward(self, x):
         return self.backbone(x)
