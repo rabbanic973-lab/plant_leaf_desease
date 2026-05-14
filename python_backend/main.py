@@ -109,12 +109,12 @@ async def analyze_vision(file: UploadFile = File(...)):
 
         leaves = []
         
-        # We will take the top 2 detections (if any exist) with a score threshold
+        # We will take all detections with a score threshold (max 15 to avoid overload)
         valid_boxes = []
         for box, score in zip(boxes, scores):
             if score > 0.5:
                 valid_boxes.append(box)
-            if len(valid_boxes) == 2:
+            if len(valid_boxes) >= 15:
                 break
                 
         # Fallback simulation if model produces no valid boxes (since it's not fine-tuned yet)

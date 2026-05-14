@@ -328,8 +328,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900 font-sans flex flex-col selection:bg-green-200">
+      <header className="bg-white/70 backdrop-blur-lg border-b border-slate-200/50 px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-sm">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <div className="bg-green-600 p-2 rounded-lg text-white">
@@ -372,7 +372,7 @@ export default function App() {
         {activeTab === "DETECTION" && (
           <>
             <div className={cn("flex flex-col gap-8 transition-all duration-300", showCode ? "xl:col-span-8" : "xl:col-span-12")}>
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 flex flex-col items-center justify-center min-h-[400px]">
+              <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl border border-slate-200/60 p-8 flex flex-col items-center justify-center min-h-[400px]">
             {files.length === 0 ? (
               <div 
                 className="w-full max-w-xl aspect-video border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors flex flex-col items-center justify-center cursor-pointer relative overflow-hidden group"
@@ -429,12 +429,12 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-4">
                   {currentStep === "UPLOAD" && (
-                    <button onClick={runPipeline} className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-lg font-medium flex items-center gap-2">
-                      <Activity className="w-4 h-4" /> Run Analysis Pipeline
+                    <button onClick={runPipeline} className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-green-600/20 hover:shadow-green-600/40 hover:-translate-y-0.5 transition-all">
+                      <Activity className="w-5 h-5" /> Run Analysis Pipeline
                     </button>
                   )}
                   {currentStep === "RESULTS" && (
-                    <button onClick={reset} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2.5 rounded-lg font-medium">
+                    <button onClick={reset} className="bg-white border border-slate-200 hover:border-slate-300 text-slate-700 px-8 py-3 rounded-xl font-bold shadow-sm hover:shadow transition-all">
                       Analyze Another Image
                     </button>
                   )}
@@ -442,8 +442,8 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-widest mb-6">Pipeline Workflow</h3>
+          <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl border border-slate-200/60 p-6">
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest mb-6 flex items-center gap-2"><Activity className="w-4 h-4 text-green-500" /> Pipeline Workflow</h3>
             <div className="flex flex-col md:flex-row justify-between items-center gap-4 relative">
               <PipelineStep icon={<FileImage />} title="1. Input" desc="Images Upload" isActive={currentStep === "UPLOAD" && files.length > 0} isDone={currentStep !== "UPLOAD"} />
               <ArrowRight className="hidden md:block w-5 h-5 text-slate-300" />
@@ -456,29 +456,84 @@ export default function App() {
           </div>
           {currentStep === "RESULTS" && results && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 max-h-[60vh] overflow-y-auto">
-                <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2 mb-4 sticky top-0 bg-white z-10 py-2">
+              <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl border border-slate-200/60 p-6 max-h-[75vh] overflow-y-auto custom-scrollbar">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-4 sticky top-0 bg-white/90 backdrop-blur-sm z-10 py-3 rounded-lg px-2">
                   <Cpu className="w-5 h-5 text-blue-500" /> CNN Detection Results
                 </h3>
                 <ul className="space-y-6">
-                  {results.results?.map((res, imgIdx) => (
-                    <li key={imgIdx} className="p-4 rounded-xl border border-slate-100 bg-slate-50">
-                      <div className="font-semibold text-sm text-slate-700 border-b pb-2 mb-2 truncate">{res.filename}</div>
-                      {res.data?.leaves.map((leaf, lIdx) => (
-                        <div key={lIdx} className="flex items-start gap-3 mt-2 text-sm">
-                          {leaf.status === "Healthy" ? <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" /> : <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5" />}
-                          <div>
-                            <p className="font-medium text-slate-900">Leaf {lIdx + 1}: {leaf.status}</p>
-                            {leaf.status === "Diseased" && <p className="text-xs text-red-600 font-medium">{leaf.diseaseName}</p>}
+                  {results.results?.map((res, imgIdx) => {
+                    const diseasedLeaves = res.data?.leaves.filter(l => l.status === "Diseased") || [];
+                    const imgUrl = previewURLs[imgIdx];
+                    
+                    return (
+                    <motion.li initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: imgIdx * 0.1 }} key={imgIdx} className="p-5 rounded-2xl border border-slate-200/60 bg-white shadow-sm flex flex-col gap-4 hover:shadow-md transition-all">
+                      <div className="font-bold text-sm text-slate-800 border-b border-slate-100 pb-3 truncate flex justify-between items-center">
+                         <span>{res.filename}</span>
+                         {diseasedLeaves.length > 0 ? (
+                           <span className="px-3 py-1 bg-red-50 text-red-600 border border-red-100 rounded-full text-xs font-bold shadow-sm flex items-center gap-1">
+                             <AlertTriangle className="w-3 h-3" /> {diseasedLeaves.length} Issues
+                           </span>
+                         ) : (
+                           <span className="px-3 py-1 bg-green-50 text-green-600 border border-green-100 rounded-full text-xs font-bold shadow-sm flex items-center gap-1">
+                             <CheckCircle className="w-3 h-3" /> All Healthy
+                           </span>
+                         )}
+                      </div>
+                      
+                      {diseasedLeaves.length > 0 && (
+                        <div className="flex flex-col gap-3 bg-red-50/50 p-4 rounded-xl border border-red-100/50">
+                          <p className="text-xs font-bold text-red-800 uppercase tracking-widest flex items-center gap-2">
+                            <Stethoscope className="w-4 h-4" /> Isolated Affected Leaves
+                          </p>
+                          <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
+                            {res.data?.leaves.map((leaf, lIdx) => {
+                              if (leaf.status === "Healthy") return null;
+                              const [ymin, xmin, ymax, xmax] = leaf.box;
+                              const w_p = Math.max(0.1, xmax - xmin);
+                              const h_p = Math.max(0.1, ymax - ymin);
+                              
+                              return (
+                                <motion.div whileHover={{ scale: 1.05 }} key={lIdx} className="flex flex-col gap-2 items-center min-w-[90px] group cursor-pointer">
+                                  <div className="relative w-24 h-24 overflow-hidden rounded-xl border-2 border-red-400 shadow-md shadow-red-500/20 shrink-0 bg-slate-100 group-hover:border-red-500 transition-colors">
+                                    <img 
+                                      src={imgUrl} 
+                                      className="absolute max-w-none transition-transform duration-500 group-hover:scale-110"
+                                      style={{
+                                        width: `${10000 / w_p}%`,
+                                        height: `${10000 / h_p}%`,
+                                        left: `-${(xmin * 100) / w_p}%`,
+                                        top: `-${(ymin * 100) / h_p}%`,
+                                      }}
+                                    />
+                                    <div className="absolute inset-0 bg-red-500/10" />
+                                  </div>
+                                  <span className="text-[10px] font-bold text-red-700 truncate w-full text-center bg-red-100 px-2 py-1 rounded-md shadow-sm">{leaf.diseaseName}</span>
+                                </motion.div>
+                              );
+                            })}
                           </div>
                         </div>
+                      )}
+
+                      <div className="flex flex-col gap-2 mt-1">
+                      {res.data?.leaves.map((leaf, lIdx) => (
+                        <div key={lIdx} className="flex items-center justify-between text-sm p-2 rounded-lg hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
+                          <div className="flex items-center gap-3">
+                            {leaf.status === "Healthy" ? <CheckCircle className="w-4 h-4 text-green-500" /> : <AlertTriangle className="w-4 h-4 text-red-500" />}
+                            <p className="font-medium text-slate-700">Leaf {lIdx + 1}</p>
+                          </div>
+                          <span className={cn("text-xs font-bold px-2 py-1 rounded-md shadow-sm", leaf.status === "Healthy" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")}>
+                            {leaf.status === "Healthy" ? "Healthy" : leaf.diseaseName}
+                          </span>
+                        </div>
                       ))}
-                    </li>
-                  ))}
+                      </div>
+                    </motion.li>
+                  )})}
                 </ul>
               </div>
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 max-h-[60vh] overflow-y-auto">
-                <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2 mb-4 sticky top-0 bg-white z-10 py-2">
+              <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl border border-slate-200/60 p-6 max-h-[75vh] overflow-y-auto custom-scrollbar">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-4 sticky top-0 bg-white/90 backdrop-blur-sm z-10 py-3 rounded-lg px-2">
                   <Stethoscope className="w-5 h-5 text-teal-500" /> Treatment & Prevention
                 </h3>
                 {(() => {
@@ -578,10 +633,10 @@ export default function App() {
 
 function PipelineStep({ icon, title, desc, isActive, isDone, isProcessing }: any) {
   return (
-    <div className="flex flex-col items-center gap-3 w-full md:w-32 bg-white relative z-10 p-2 text-center">
-      <div className={cn("w-12 h-12 rounded-full flex items-center justify-center border-2", isProcessing ? "animate-pulse border-blue-400 text-blue-500" : isDone ? "border-green-500 text-green-600" : isActive ? "bg-slate-900 text-white" : "border-slate-200 text-slate-400")}>{icon}</div>
-      <p className="text-xs font-bold">{title}</p>
-      <p className="text-[10px] text-slate-500">{desc}</p>
+    <div className="flex flex-col items-center gap-3 w-full md:w-32 relative z-10 p-2 text-center">
+      <div className={cn("w-14 h-14 rounded-full flex items-center justify-center border-4 shadow-lg transition-all duration-300", isProcessing ? "animate-pulse border-blue-400 text-blue-500 bg-blue-50 shadow-blue-500/30" : isDone ? "border-green-500 text-green-600 bg-green-50 shadow-green-500/30" : isActive ? "border-slate-800 bg-slate-900 text-white shadow-slate-900/30 scale-110" : "border-slate-200 text-slate-400 bg-white")}>{icon}</div>
+      <p className={cn("text-xs font-bold", isActive || isDone ? "text-slate-800" : "text-slate-400")}>{title}</p>
+      <p className="text-[10px] text-slate-500 font-medium">{desc}</p>
     </div>
   );
 }
