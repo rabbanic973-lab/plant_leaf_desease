@@ -1,0 +1,106 @@
+# LeafGuard AI — Training Pipeline: Tree → Individual Leaf → Train → Predict
+
+## Problem
+
+Your professor requires:
+1. **Training**: Upload whole plant/tree images → auto-segment into individual leaves → train a classifier on those leaves → 100% confidence on training data
+2. **Testing**: Upload new whole tree images → auto-segment → classify each leaf → >70% confidence required
+3. The website must handle both workflows end-to-end
+
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph TRAINING["🏋️ Training Workflow"]
+        T1["📷 Upload whole\ntree/plant images"] --> T2["🔍 YOLOv8s-seg\nsegments each leaf"]
+        T2 --> T3["✂️ Cropped individual\nleaf images"]
+        T3 --> T4["🏷️ User labels each leaf\n(disease class)"]
+        T4 --> T5["🧠 Fine-tune MobileNetV2\non labeled leaves"]
+        T5 --> T6["📊 Training metrics\n(accuracy, confidence)"]
+    end
+
+    subgraph TESTING["🧪 Testing / Prediction Workflow"]
+        P1["📷 Upload new\nwhole tree image"] --> P2["🔍 YOLOv8s-seg\nsegments each leaf"]
+        P2 --> P3["🔬 Fine-tuned model\nclassifies each leaf"]
+        P3 --> P4["📊 CCTV-style results\nper-leaf disease + confidence"]
+    end
+
+    T6 -.-> P3
+```
+
+## Proposed Changes
+
+### Python Backend — Training Pipeline
+
+#### [MODIFY] [main.py](file:///c:/Users/91974/Downloads/plant_leaf_desease-main%20(1)/plant_leaf_desease-main/python_backend/main.py)
+
+Add 4 new endpoints + modify existing ones:
+
+**New endpoints:**
+
+1. **`POST /segment-for-training`** — Upload whole tree images → YOLOv8s-seg segments individual leaves → returns cropped leaf images as base64 + bounding boxes. The frontend shows these crops for the user to label.
+
+2. **`POST /save-training-leaves`** — Receives labeled leaf crops (base64 image + disease label) → saves them to disk organized by class folders: `training_data/{class_name}/leaf_001.jpg`
+
+3. **`POST /train-custom-model`** — Fine-tunes MobileNetV2 on the saved leaf images using PyTorch:
+   - Loads all images from `training_data/` folders
+   - Train/val split (80/20)
+   - Fine-tunes for N epochs with early stopping
+   - Saves model to `custom_model.pth`
+   - Returns real-time training metrics (loss, accuracy, confidence per epoch)
+   - Target: 100% training accuracy
+
+4. **`GET /training-status`** — Returns current training progress, metrics, and whether a custom model exists
+
+**Modified endpoints:**
+
+- **`/analyze-vision`** — If a custom fine-tuned model exists (`custom_model.pth`), use it instead of the default PlantVillage model. This ensures predictions use your trained model.
+
+---
+
+### Frontend — Training Dashboard
+
+#### [MODIFY] [AdminDashboard.tsx](file:///c:/Users/91974/Downloads/plant_leaf_desease-main%20(1)/plant_leaf_desease-main/src/AdminDashboard.tsx)
+
+Complete redesign with 4-step workflow:
+
+1. **Step 1 — Upload Tree Images**: Drag & drop whole plant/tree images
+2. **Step 2 — Review Segmented Leaves**: See auto-segmented individual leaves, assign disease labels from a dropdown (Healthy, Early Blight, Late Blight, etc.)
+3. **Step 3 — Train Model**: Trigger fine-tuning, see live progress (epoch, loss, accuracy, confidence)
+4. **Step 4 — Metrics Dashboard**: Training accuracy, per-class confidence, confusion matrix summary
+
+---
+
+### Server Proxy
+
+#### [MODIFY] [server.ts](file:///c:/Users/91974/Downloads/plant_leaf_desease-main%20(1)/plant_leaf_desease-main/server.ts)
+
+Add proxy routes for the 4 new training endpoints.
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Disease classes for labeling**: Which diseases should appear in the labeling dropdown? Options:
+> - A) Full PlantVillage 38 classes (Apple Scab, Tomato Early Blight, etc.)
+> - B) Simplified set (Healthy, Early Blight, Late Blight, Powdery Mildew, Rust, Bacterial Spot, Leaf Mold)
+> - C) Custom classes that you define?
+
+> [!IMPORTANT]
+> **Training data volume**: How many whole tree/plant images will you typically upload for training? This affects whether we need batch processing or can handle it in-memory. (10-50 images? 100+? 500+?)
+
+> [!NOTE]
+> **CPU fine-tuning feasibility**: MobileNetV2 is small enough to fine-tune on CPU (HF Spaces). With ~200-500 leaf images, training 20 epochs takes ~5-10 minutes on CPU. With >1000 images, it could take 20-30 min. This is acceptable for a one-time training run.
+
+## Verification Plan
+
+### Accuracy Targets
+- **Training data**: Fine-tune until training accuracy reaches ~100% (overfit intentionally, per professor's requirement)
+- **Test data (new trees)**: Each leaf classification should show >70% confidence; leaves below threshold get flagged
+
+### Tests
+1. Upload 5 whole tree images → verify each gets segmented into individual leaves
+2. Label 50+ leaves → trigger training → verify training accuracy reaches ~100%
+3. Upload new tree image → verify each leaf classified with >70% confidence
+4. Upload non-plant image → verify CLIP gate rejects it
