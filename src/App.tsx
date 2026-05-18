@@ -9,10 +9,19 @@ type LeafResult = {
   box: [number, number, number, number]; // ymin, xmin, ymax, xmax (percentages)
   status: "Healthy" | "Diseased";
   diseaseName: string;
+  plant?: string;
+  disease?: string | null;
   confidence: number;
+  segmentation_confidence?: number;
+  top3?: { label: string; confidence: number }[];
+  is_fallback?: boolean;
 };
 
 type AnalysisResponse = {
+  is_plant?: boolean;
+  plant_confidence?: number;
+  rejection_confidence?: number;
+  message?: string;
   leaves: LeafResult[];
   suggestions: string[];
   prevention: string[];
@@ -152,7 +161,7 @@ export default function App() {
     setIsProcessing(true);
     setCurrentStep("SEGMENTATION");
     
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, 800));
     setCurrentStep("CLASSIFICATION");
 
     try {
@@ -402,22 +411,47 @@ export default function App() {
                     return (
                       <div key={index} className="relative w-full aspect-square bg-slate-100 rounded-xl overflow-hidden shadow-sm border border-slate-200 flex flex-col">
                         <img src={url} alt={`preview ${index}`} className="w-full h-full object-cover" />
+                        {/* CCTV-style rejection overlay */}
+                        {currentStep === "RESULTS" && itemData?.is_plant === false && (
+                          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-yellow-900/70 flex items-center justify-center p-2 z-10">
+                            <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-3 text-center shadow-lg max-w-[90%]">
+                              <AlertTriangle className="w-6 h-6 text-yellow-600 mx-auto mb-1" />
+                              <p className="text-[10px] font-bold text-yellow-800">Not a plant image</p>
+                            </div>
+                          </motion.div>
+                        )}
+                        {/* CCTV-style leaf detection overlays */}
                         <AnimatePresence>
                           {currentStep === "RESULTS" && itemData?.leaves && itemData.leaves.map((leaf, idx) => {
                             const [ymin, xmin, ymax, xmax] = leaf.box;
-                            const height = ymax - ymin;
-                            const width = xmax - xmin;
+                            const h = ymax - ymin;
+                            const w = xmax - xmin;
                             const isHealthy = leaf.status === "Healthy";
+                            const borderColor = isHealthy ? "border-green-400 shadow-green-500/30" : "border-red-500 shadow-red-500/30";
+                            const bgColor = isHealthy ? "bg-green-500" : "bg-red-500";
+                            const labelText = isHealthy ? "Healthy" : (leaf.disease || leaf.diseaseName || "Diseased");
                             return (
                               <motion.div
                                 key={idx}
-                                initial={{ opacity: 0, scale: 0.9 }}
+                                initial={{ opacity: 0, scale: 0.8 }}
                                 animate={{ opacity: 1, scale: 1 }}
-                                style={{ top: `${ymin}%`, left: `${xmin}%`, height: `${height}%`, width: `${width}%` }}
-                                className={cn("absolute border-[2px] rounded-sm pointer-events-none flex flex-col", isHealthy ? "border-green-400" : "border-red-500")}
+                                transition={{ delay: idx * 0.08, type: "spring", stiffness: 300 }}
+                                style={{ top: `${ymin}%`, left: `${xmin}%`, height: `${h}%`, width: `${w}%` }}
+                                className={cn("absolute border-[2.5px] rounded-sm pointer-events-none shadow-md", borderColor)}
                               >
-                                <div className={cn("absolute -top-5 -left-0.5 px-1 py-0.5 text-[8px] font-bold text-white rounded whitespace-nowrap", isHealthy ? "bg-green-500" : "bg-red-500")}>
-                                  {leaf.status}
+                                {/* Corner brackets for CCTV look */}
+                                <div className={cn("absolute -top-[2px] -left-[2px] w-2 h-2 border-t-[3px] border-l-[3px] rounded-tl-sm", isHealthy ? "border-green-400" : "border-red-500")} />
+                                <div className={cn("absolute -top-[2px] -right-[2px] w-2 h-2 border-t-[3px] border-r-[3px] rounded-tr-sm", isHealthy ? "border-green-400" : "border-red-500")} />
+                                <div className={cn("absolute -bottom-[2px] -left-[2px] w-2 h-2 border-b-[3px] border-l-[3px] rounded-bl-sm", isHealthy ? "border-green-400" : "border-red-500")} />
+                                <div className={cn("absolute -bottom-[2px] -right-[2px] w-2 h-2 border-b-[3px] border-r-[3px] rounded-br-sm", isHealthy ? "border-green-400" : "border-red-500")} />
+                                {/* Label tag */}
+                                <div className={cn("absolute -top-5 -left-0.5 px-1.5 py-0.5 text-[7px] font-bold text-white rounded-sm whitespace-nowrap shadow-sm flex items-center gap-0.5", bgColor)}>
+                                  {isHealthy ? <CheckCircle className="w-2 h-2" /> : <AlertTriangle className="w-2 h-2" />}
+                                  {labelText}
+                                </div>
+                                {/* Confidence badge */}
+                                <div className="absolute -bottom-4 right-0 px-1 py-0.5 text-[6px] font-mono text-white bg-black/60 rounded-sm">
+                                  {(leaf.confidence * 100).toFixed(0)}%
                                 </div>
                               </motion.div>
                             );
@@ -445,13 +479,13 @@ export default function App() {
           <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl border border-slate-200/60 p-6">
             <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest mb-6 flex items-center gap-2"><Activity className="w-4 h-4 text-green-500" /> Pipeline Workflow</h3>
             <div className="flex flex-col md:flex-row justify-between items-center gap-4 relative">
-              <PipelineStep icon={<FileImage />} title="1. Input" desc="Images Upload" isActive={currentStep === "UPLOAD" && files.length > 0} isDone={currentStep !== "UPLOAD"} />
+              <PipelineStep icon={<ShieldCheck />} title="1. CLIP Gate" desc="Plant Validation" isActive={currentStep === "UPLOAD" && files.length > 0} isDone={currentStep !== "UPLOAD"} />
               <ArrowRight className="hidden md:block w-5 h-5 text-slate-300" />
-              <PipelineStep icon={<Cpu />} title="2. Mask R-CNN" desc="Leaf Segmentation" isActive={currentStep === "SEGMENTATION"} isDone={currentStep === "CLASSIFICATION" || currentStep === "RESULTS"} isProcessing={currentStep === "SEGMENTATION"} />
+              <PipelineStep icon={<Cpu />} title="2. YOLOv8s-seg" desc="Leaf Segmentation" isActive={currentStep === "SEGMENTATION"} isDone={currentStep === "CLASSIFICATION" || currentStep === "RESULTS"} isProcessing={currentStep === "SEGMENTATION"} />
               <ArrowRight className="hidden md:block w-5 h-5 text-slate-300" />
-              <PipelineStep icon={<Activity />} title="3. ResNet CNN" desc="Disease Classifier" isActive={currentStep === "CLASSIFICATION"} isDone={currentStep === "RESULTS"} isProcessing={currentStep === "CLASSIFICATION"} />
+              <PipelineStep icon={<Activity />} title="3. PlantVillage" desc="Disease Classifier" isActive={currentStep === "CLASSIFICATION"} isDone={currentStep === "RESULTS"} isProcessing={currentStep === "CLASSIFICATION"} />
               <ArrowRight className="hidden md:block w-5 h-5 text-slate-300" />
-              <PipelineStep icon={<Stethoscope />} title="4. LLaMA Backend" desc="Treatment API" isActive={currentStep === "RESULTS"} isDone={currentStep === "RESULTS"} />
+              <PipelineStep icon={<Stethoscope />} title="4. Results" desc="Treatment API" isActive={currentStep === "RESULTS"} isDone={currentStep === "RESULTS"} />
             </div>
           </div>
           {currentStep === "RESULTS" && results && (
@@ -516,15 +550,27 @@ export default function App() {
                       )}
 
                       <div className="flex flex-col gap-2 mt-1">
+                      {res.data?.is_plant === false && (
+                        <div className="p-4 bg-yellow-50 border border-yellow-300 rounded-xl flex items-start gap-3">
+                          <AlertTriangle className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-bold text-yellow-800 text-sm">Not a Plant Image</p>
+                            <p className="text-xs text-yellow-700 mt-1">{res.data.message || "This image does not appear to contain a plant or leaf."}</p>
+                          </div>
+                        </div>
+                      )}
                       {res.data?.leaves.map((leaf, lIdx) => (
                         <div key={lIdx} className="flex items-center justify-between text-sm p-2 rounded-lg hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
                           <div className="flex items-center gap-3">
                             {leaf.status === "Healthy" ? <CheckCircle className="w-4 h-4 text-green-500" /> : <AlertTriangle className="w-4 h-4 text-red-500" />}
                             <p className="font-medium text-slate-700">Leaf {lIdx + 1}</p>
                           </div>
-                          <span className={cn("text-xs font-bold px-2 py-1 rounded-md shadow-sm", leaf.status === "Healthy" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")}>
-                            {leaf.status === "Healthy" ? "Healthy" : leaf.diseaseName}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono text-slate-400">{(leaf.confidence * 100).toFixed(0)}%</span>
+                            <span className={cn("text-xs font-bold px-2 py-1 rounded-md shadow-sm", leaf.status === "Healthy" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")}>
+                              {leaf.diseaseName || leaf.status}
+                            </span>
+                          </div>
                         </div>
                       ))}
                       </div>

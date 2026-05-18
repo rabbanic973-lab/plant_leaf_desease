@@ -1,48 +1,85 @@
-import torch
-import torchvision
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+"""
+LeafGuard AI — Leaf Instance Segmentation (Reference Code)
+Uses YOLOv8s-seg for detecting and segmenting individual leaves
+from plant/tree/branch images.
+"""
+
+from ultralytics import YOLO
 from PIL import Image
-import torchvision.transforms as T
+import numpy as np
 
-def get_model_instance_segmentation(num_classes):
-    # Load an instance segmentation model pre-trained on COCO
-    model = torchvision.models.detection.maskrcnn_resnet50_fpn(pretrained=True)
 
-    # Get number of input features for the classifier
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    # Replace the pre-trained head with a new one
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-
-    # Now get the number of input features for the mask classifier
-    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
-    hidden_layer = 256
-    # Replace the mask predictor with a new one
-    model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask,
-                                                       hidden_layer,
-                                                       num_classes)
+def get_segmentation_model():
+    """
+    Load YOLOv8s-seg (small variant) for instance segmentation.
+    This model produces both bounding boxes and pixel-level masks.
+    """
+    model = YOLO("yolov8s-seg.pt")
     return model
 
-def segment_leaves(image_path, model, device):
+
+def segment_leaves(image_path: str, model: YOLO, conf_threshold: float = 0.20):
     """
-    Given an image path and a trained Mask R-CNN model, return the masks,
-    bounding boxes, and labels for the detected leaves.
+    Given an image path and a YOLOv8-seg model, detect and segment
+    individual leaves/plant regions.
+
+    Returns a list of dictionaries with:
+    - 'box': [ymin%, xmin%, ymax%, xmax%] bounding box in percentage
+    - 'mask': binary mask array for the leaf (if available)
+    - 'confidence': detection confidence score
     """
-    model.eval()
     image = Image.open(image_path).convert("RGB")
-    transform = T.Compose([T.ToTensor()])
-    img_tensor = transform(image).unsqueeze(0).to(device)
+    width, height = image.size
+    img_np = np.array(image)
 
-    with torch.no_grad():
-        prediction = model(img_tensor)
+    results = model(img_np, conf=conf_threshold, verbose=False)
 
-    # prediction contains 'boxes', 'labels', 'scores', 'masks'
-    return prediction[0]
+    leaves = []
+
+    if results and len(results) > 0:
+        result = results[0]
+        boxes = result.boxes
+        masks = result.masks
+
+        if boxes is not None:
+            for i in range(len(boxes)):
+                box = boxes[i]
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                conf = float(box.conf[0].cpu().numpy())
+
+                box_area = (x2 - x1) * (y2 - y1)
+                image_area = width * height
+
+                # Filter out extremely large or small detections
+                if box_area < 0.005 * image_area or box_area > 0.92 * image_area:
+                    continue
+
+                leaf = {
+                    "box": [
+                        (y1 / height) * 100,
+                        (x1 / width) * 100,
+                        (y2 / height) * 100,
+                        (x2 / width) * 100,
+                    ],
+                    "confidence": conf,
+                }
+
+                # Extract pixel mask if available
+                if masks is not None and i < len(masks):
+                    mask_data = masks[i].data.cpu().numpy().squeeze()
+                    leaf["mask"] = mask_data
+
+                leaves.append(leaf)
+
+                if len(leaves) >= 20:
+                    break
+
+    return leaves
+
 
 # Example Usage:
-# device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-# num_classes = 2 # Background + Leaf
-# model = get_model_instance_segmentation(num_classes)
-# model.load_state_dict(torch.load('leaf_maskrcnn.pth'))
-# model.to(device)
-# results = segment_leaves('sample_leaf.jpg', model, device)
+# model = get_segmentation_model()
+# leaves = segment_leaves("branch_with_7_leaves.jpg", model)
+# print(f"Detected {len(leaves)} individual leaves")
+# for i, leaf in enumerate(leaves):
+#     print(f"  Leaf {i+1}: box={leaf['box']}, conf={leaf['confidence']:.2f}")

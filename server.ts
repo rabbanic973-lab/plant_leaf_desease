@@ -25,17 +25,16 @@ async function startServer() {
       // Process each image independently
       const analysisPromises = files.map(async (file) => {
         const mimeType = file.mimetype;
-        const base64Data = file.buffer.toString("base64");
         
         try {
-          // STEP 1: Vision Model via external ML service (Render)
+          // Send to Python ML backend for 3-stage analysis
           const renderApiUrl = process.env.RENDER_VISION_API_URL || "http://localhost:8000";
           
           const formData = new FormData();
           const blob = new Blob([file.buffer], { type: mimeType });
           formData.append("file", blob, file.originalname);
           
-          let leaves = [];
+          let visionData: any = { leaves: [], is_plant: true };
           try {
             const visionResponse = await fetch(`${renderApiUrl}/analyze-vision`, {
               method: "POST",
@@ -43,16 +42,32 @@ async function startServer() {
             });
             
             if (visionResponse.ok) {
-              const visionData = await visionResponse.json();
-              leaves = Array.isArray(visionData.leaves) ? visionData.leaves : [];
+              visionData = await visionResponse.json();
             } else {
-              console.error("Render API Error:", await visionResponse.text());
+              console.error("ML Backend Error:", await visionResponse.text());
             }
           } catch (e) {
-            console.error("Failed to call Render API:", e);
+            console.error("Failed to call ML Backend:", e);
           }
 
-          // STEP 2: Suggestions based on detected issues
+          // If the image was rejected by the CLIP gate
+          if (visionData.is_plant === false) {
+            return {
+              filename: file.originalname,
+              data: {
+                is_plant: false,
+                rejection_confidence: visionData.rejection_confidence || 0,
+                message: visionData.message || "This image does not appear to contain a plant or leaf.",
+                leaves: [],
+                suggestions: [],
+                prevention: [],
+              }
+            };
+          }
+
+          const leaves = Array.isArray(visionData.leaves) ? visionData.leaves : [];
+
+          // Generate suggestions based on detected issues
           const detectedIssues = leaves
               .filter((l: any) => l.status === "Diseased" && l.diseaseName && l.diseaseName !== "null")
               .map((l: any) => l.diseaseName);
@@ -61,20 +76,42 @@ async function startServer() {
           let prevention: string[] = [];
 
           if (detectedIssues.length > 0) {
-            suggestions = ["Apply suitable fungicide.", "Prune affected areas."];
-            prevention = ["Improve air circulation.", "Water the base of the plant."];
+            const uniqueDiseases = [...new Set(detectedIssues)];
+            suggestions = [
+              `Detected: ${uniqueDiseases.join(", ")}`,
+              "Apply appropriate fungicide or treatment for the identified disease(s).",
+              "Prune and remove severely affected leaves to prevent spread.",
+              "Consult a local agricultural extension office for targeted treatment."
+            ];
+            prevention = [
+              "Improve air circulation around plants.",
+              "Water at the base of the plant, avoiding leaf wetness.",
+              "Rotate crops annually to break disease cycles.",
+              "Use disease-resistant varieties when possible."
+            ];
           } else {
-            suggestions = ["Continue normal care and watering.", "Monitor the plant regularly for any new symptoms."];
-            prevention = ["Ensure adequate light and air circulation.", "Do not overwater.", "Keep leaves dry when watering."];
+            suggestions = [
+              "Your plant appears healthy! Continue with regular care.",
+              "Monitor regularly for any new symptoms."
+            ];
+            prevention = [
+              "Ensure adequate light and air circulation.",
+              "Maintain consistent watering schedule.",
+              "Keep leaves dry when watering.",
+              "Apply preventive organic treatments seasonally."
+            ];
           }
 
-          const finalData = {
-            leaves,
-            suggestions,
-            prevention
+          return {
+            filename: file.originalname,
+            data: {
+              is_plant: true,
+              plant_confidence: visionData.plant_confidence || 0,
+              leaves,
+              suggestions,
+              prevention,
+            }
           };
-          
-          return { filename: file.originalname, data: finalData };
         } catch (err) {
           console.error(`Error processing ${file.originalname}:`, err);
           return { filename: file.originalname, error: "Failed to process this image" };
@@ -151,17 +188,31 @@ async function startServer() {
       res.status(500).json({ error: "Failed to extract leaves." });
     }
   });
-  // Upload Training Data
-  app.post("/api/admin/upload-training-data", upload.single("dataset"), async (req, res) => {
+  // Upload Training Data (images + optional CSV)
+  app.post("/api/admin/upload-training-data", upload.fields([
+    { name: "images", maxCount: 500 },
+    { name: "dataset", maxCount: 1 }
+  ]), async (req, res) => {
     try {
-      if (!req.file) {
-        return res.status(400).json({ error: "No CSV file uploaded" });
-      }
-
       const renderApiUrl = process.env.RENDER_VISION_API_URL || "http://localhost:8000";
       const formData = new FormData();
-      const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
-      formData.append("dataset", blob, req.file.originalname);
+
+      const allFiles = req.files as { [fieldname: string]: Express.Multer.File[] };
+
+      // Forward images
+      if (allFiles?.images) {
+        for (const file of allFiles.images) {
+          const blob = new Blob([file.buffer], { type: file.mimetype });
+          formData.append("images", blob, file.originalname);
+        }
+      }
+
+      // Forward CSV
+      if (allFiles?.dataset?.[0]) {
+        const csv = allFiles.dataset[0];
+        const blob = new Blob([csv.buffer], { type: csv.mimetype });
+        formData.append("dataset", blob, csv.originalname);
+      }
 
       const pythonResponse = await fetch(`${renderApiUrl}/upload-training-data`, {
         method: "POST",
@@ -177,6 +228,60 @@ async function startServer() {
     } catch (error) {
       console.error("Error uploading training data:", error);
       res.status(500).json({ error: "Failed to upload training data." });
+    }
+  });
+
+  // Segment images for training (returns cropped leaf base64 images)
+  app.post("/api/admin/segment-for-training", upload.array("images", 100), async (req, res) => {
+    try {
+      const files = req.files as Express.Multer.File[];
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: "No images uploaded" });
+      }
+
+      const renderApiUrl = process.env.RENDER_VISION_API_URL || "http://localhost:8000";
+      const formData = new FormData();
+      files.forEach((file) => {
+        const blob = new Blob([file.buffer], { type: file.mimetype });
+        formData.append("images", blob, file.originalname);
+      });
+
+      const pythonResponse = await fetch(`${renderApiUrl}/segment-for-training`, {
+        method: "POST",
+        body: formData
+      });
+
+      if (pythonResponse.ok) {
+        const data = await pythonResponse.json();
+        res.json(data);
+      } else {
+        res.status(pythonResponse.status).json({ error: "Segmentation failed" });
+      }
+    } catch (error) {
+      console.error("Error segmenting for training:", error);
+      res.status(500).json({ error: "Failed to segment images." });
+    }
+  });
+
+  // Save labeled training leaves
+  app.post("/api/admin/save-training-leaves", express.json({ limit: "200mb" }), async (req, res) => {
+    try {
+      const renderApiUrl = process.env.RENDER_VISION_API_URL || "http://localhost:8000";
+      const pythonResponse = await fetch(`${renderApiUrl}/save-training-leaves`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req.body)
+      });
+
+      if (pythonResponse.ok) {
+        const data = await pythonResponse.json();
+        res.json(data);
+      } else {
+        res.status(pythonResponse.status).json({ error: "Save failed" });
+      }
+    } catch (error) {
+      console.error("Error saving training leaves:", error);
+      res.status(500).json({ error: "Failed to save training data." });
     }
   });
 
@@ -198,6 +303,23 @@ async function startServer() {
     } catch (error) {
       console.error("Error triggering training:", error);
       res.status(500).json({ error: "Failed to trigger training." });
+    }
+  });
+
+  // Training Status
+  app.get("/api/admin/training-status", async (req, res) => {
+    try {
+      const renderApiUrl = process.env.RENDER_VISION_API_URL || "http://localhost:8000";
+      const pythonResponse = await fetch(`${renderApiUrl}/training-status`);
+
+      if (pythonResponse.ok) {
+        const data = await pythonResponse.json();
+        res.json(data);
+      } else {
+        res.json({ status: "idle", has_custom_model: false });
+      }
+    } catch (error) {
+      res.json({ status: "idle", has_custom_model: false });
     }
   });
 

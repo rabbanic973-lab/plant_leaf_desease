@@ -32,9 +32,9 @@ RUN npx esbuild server.ts --bundle --platform=node --format=cjs --packages=exter
 # ---- Stage 3: Runtime (Python + Node.js) ----
 FROM python:3.11-slim
 
-# Install Node.js 20 + sed (to fix Windows line endings)
+# Install Node.js 20 + utilities
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl sed && \
+    apt-get install -y --no-install-recommends curl sed libgl1-mesa-glx libglib2.0-0 && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     apt-get clean && \
@@ -46,6 +46,26 @@ WORKDIR /app
 COPY python_backend/requirements.txt /app/python_backend/requirements.txt
 RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu \
     -r /app/python_backend/requirements.txt
+
+# ---- Pre-download ML models to avoid cold-start ----
+RUN python -c "\
+from transformers import CLIPProcessor, CLIPModel; \
+CLIPProcessor.from_pretrained('openai/clip-vit-base-patch32'); \
+CLIPModel.from_pretrained('openai/clip-vit-base-patch32'); \
+print('CLIP model cached'); \
+"
+
+RUN python -c "\
+from transformers import pipeline; \
+p = pipeline('image-classification', model='linkanjarad/mobilenet_v2_1.0_224-plant-disease-identification'); \
+print('PlantVillage classifier cached'); \
+"
+
+RUN python -c "\
+from ultralytics import YOLO; \
+model = YOLO('yolov8s-seg.pt'); \
+print('YOLOv8s-seg model cached'); \
+"
 
 # ---- Node.js production dependencies ----
 COPY package.json package-lock.json ./
